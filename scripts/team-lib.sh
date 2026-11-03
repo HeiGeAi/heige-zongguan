@@ -52,6 +52,20 @@ zg_lookup() {
   printf '%s\n' "$found"
 }
 
+# 每条规则输出一行，字段用 \037 分隔：名字 成员 线名 指令 权限 并行 通知 目录
+zg_rules() {
+  local f; f="$(zg_team_file)"; [ -f "$f" ] || return 1
+  local line key val a b c d e g h i
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in \#*|'') continue ;; esac
+    key="$(zg_trim "${line%%=*}")"; val="${line#*=}"
+    case "$key" in 规则|rule) ;; *) continue ;; esac
+    IFS='|' read -r a b c d e g h i <<<"$val"
+    printf '%s\037%s\037%s\037%s\037%s\037%s\037%s\037%s\n' "$(zg_trim "$a")" "$(zg_trim "$b")" "$(zg_trim "$c")" "$(zg_trim "$d")" \
+      "$(zg_trim "${e:-}")" "$(zg_trim "${g:-}")" "$(zg_trim "${h:-}")" "$(zg_trim "${i:-}")"
+  done < "$f"
+}
+
 # 团队表可信吗：全局表、ZONGGUAN_TEAM 指定的表自动可信；项目里的表要用户 team.sh trust 过，且内容没变
 ZG_TRUST_FILE="$HOME/.zongguan/trusted.txt"
 zg_hash() { if command -v shasum >/dev/null; then shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi; }

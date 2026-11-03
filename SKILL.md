@@ -25,6 +25,12 @@ bash <skill目录>/scripts/team.sh show
 
 团队表只决定外部成员怎么调用。你自己开子会话，用的是你所在产品的原生能力（见下一节）。
 
+开工时再读一份**决策记录**：项目根目录的 `.zongguan/decisions.md` 和 `~/.zongguan/decisions.md`（有哪份读哪份）。里面是用户拍过板的事和明确不做的事，后面每次想问用户之前都先对照它（格式见 [decisions-template.md](templates/decisions-template.md)）。
+
+### 总管该用什么模型
+
+总管要拆任务、验收、替用户做大部分判断，用你手上最聪明、最主动的那个模型。干活的成员按性价比挑，读材料、跑批量这类活用便宜快的就行。只有一种情况总管可以用轻模型：它只转发、不判断，比如自动化里只负责把事件分给规则对应成员的那一层。
+
 ### 你是哪种总管
 
 | 总管类型 | 例子 | 怎么干活 |
@@ -88,10 +94,19 @@ bash <skill目录>/scripts/team.sh show
 - 一条线长时间没回报，去看它卡在哪；同一个办法重试两轮还不行，换思路或换一个 AI。
 - 失败不吞：超时、报错、退出码写进汇报。
 - 手动接力的成员（`dispatch.sh` 返回 10）：把打印出的简报原样交给用户，记下这条线在等谁，用户贴回结论后照常核对。
+- 派单带上线名（`dispatch.sh 成员 -l 线名`）。同一条线已经有活在跑，脚本会拒绝再派（返回 6），这时等它回来，别另起一份。
 
-## 6．汇报：主窗口只放结论
+### 让另一个 AI 审查时的三条规矩
 
-所有线都回来后，在主窗口给用户一张表：线、谁做的、结果、交付物链接、还剩什么。哪部分是哪个 AI 做的要写明。用户只需要在这一个窗口里拍板和验收。
+- **审查方只读**：只能看，不能改，碰不到密钥。
+- **只报真会出错的问题**：错误、遗漏、和原文对不上的地方、安全隐患。代码风格、「可以写得更好」不报，不然能来回改个没完。
+- **最多审 3 轮**：第 3 轮还有问题，把剩下的问题和两边的分歧写进决策卡交给用户，别再循环。
+
+## 6．汇报：主窗口只放结论，要拍板的写成决策卡
+
+所有线都回来后，在主窗口给用户一张表：线、谁做的、结果、交付物链接、还剩什么。哪部分是哪个 AI 做的要写明。
+
+需要用户拍板的事，单独写成决策卡：一句话说清是什么事、现状和证据、推荐选项放第一个、其他选项和代价、不选会怎样。用户选完，把结论和原话追加进决策记录，同类事以后不再问。哪些事必须问人、卡片怎么写，见 [decision-card.md](references/decision-card.md)。清单以外的事，自己做完，在汇报里写一句就行。
 
 ## 什么时候别用这套
 
@@ -104,6 +119,10 @@ bash <skill目录>/scripts/team.sh show
 - [team-setup.md](references/team-setup.md)：怎么建团队表，各种产品怎么写成员
 - [platforms.md](references/platforms.md)：Claude Code、Codex、Antigravity、WorkBuddy、网页版的具体操作
 - [examples.md](references/examples.md)：内容生产、产品开发、日常办公三个完整例子
+- [decision-card.md](references/decision-card.md)：必须问人的清单和决策卡格式
+- [automation.md](references/automation.md)：不等人开口，让定时任务和事件自己叫醒成员
+- [event-hub.md](references/event-hub.md)：进阶，把各种消息、告警统一接进来的事件中台怎么搭
 - [brief-template.md](templates/brief-template.md)：派单简报模板
 - [rules-template.md](templates/rules-template.md)：贴进规矩文件的派单规矩
-- `scripts/team.sh`：团队表管理，`scripts/dispatch.sh`：按团队表派成员，`scripts/stats.sh`：派单统计
+- [decisions-template.md](templates/decisions-template.md)：决策记录（定了的事、定了不做的事）
+- `scripts/team.sh`：团队表管理，`scripts/dispatch.sh`：按团队表派成员，`scripts/run-rule.sh`：按规则表触发一单（定时、事件用），`scripts/stats.sh`：派单统计

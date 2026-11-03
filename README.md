@@ -21,6 +21,10 @@
 | 同一个产品拆到几个窗口改，A 修好的被 B 改回去 | 同一个产品、同一份文件的活定为一条线，只在一个会话里做 |
 | 跟 AI 说「合适时可以分活」，它从来不分 | 派不派活写成规矩，团队表写死谁擅长什么 |
 | 别的 AI 交回来的东西直接用，出了错才发现 | 成员产出一律当初稿，总管对照原文核过才交给你 |
+| AI 什么都来问你，一天被打断几十次 | 只有删除、花钱、对外发消息、改权限这几类事才问你，写成决策卡，推荐选项放第一个，你点一下就行 |
+| 同一个问题，AI 隔几天又来问一遍 | 你拍过板的事、明确不做的事，带原话记进决策记录，定过的不问第二遍 |
+| 两个 AI 互相审查，挑错挑个没完 | 审查只报真会出错的问题，最多 3 轮 |
+| 你不开口，什么都不会发生 | 规则表加定时任务和事件，到点、来新消息、出错时成员自己被叫醒，只把要拍板的事递给你 |
 
 ## 快速开始
 
@@ -56,6 +60,16 @@ bash heige-zongguan/scripts/team.sh init --manager "Claude Code"
 - 「fork 一个子会话去写播客稿，写完回这里汇报」
 - 「把这段代码派给 codex 只读审一遍」
 
+## 三档用法，按需要往上走
+
+| 档 | 你要做的 | 适合 |
+|---|---|---|
+| 一个窗口当总管 | 装好 skill，对总管说「你当总管」 | 所有人，网页版也能用手动接力 |
+| 按团队表派活 | 建团队表，写清谁擅长什么 | 电脑上装了两个以上 AI 的人 |
+| 不等你开口 | 在团队表里写规则，交给定时任务或事件触发（`run-rule.sh`） | 有固定的巡检、日报、处理反馈这类重复活的人 |
+
+再往上，来源多到管不过来时，`references/event-hub.md` 讲怎么搭一个事件中台。
+
 ## 成员的三种调用方式
 
 | 写法 | 适合 | 只读控制 |
@@ -79,11 +93,16 @@ bash heige-zongguan/scripts/team.sh init --manager "Claude Code"
 | `references/team-setup.md` | 团队表：谁当总管、谁当成员、各种产品怎么写 |
 | `references/platforms.md` | 各家产品怎么开子会话、派活、回报 |
 | `references/examples.md` | 内容、开发、办公三个完整例子 |
+| `references/decision-card.md` | 必须问人的清单和决策卡格式 |
+| `references/automation.md` | 规则表、定时任务、事件触发 |
+| `references/event-hub.md` | 进阶：事件中台和代码上线流水线的设计 |
 | `templates/brief-template.md` | 派单简报模板 |
 | `templates/rules-template.md` | 贴进规矩文件的派单规矩 |
+| `templates/decisions-template.md` | 决策记录：定了的事、定了不做的事 |
 | `scripts/team.sh` | 团队表管理：init、show、check、set-manager、add、remove、trust |
-| `scripts/dispatch.sh` | 按团队表派成员 |
-| `scripts/stats.sh` | 派单统计 |
+| `scripts/dispatch.sh` | 按团队表派成员，带线名锁和台账 |
+| `scripts/run-rule.sh` | 按规则触发一单：去重、派单、只在需要时通知 |
+| `scripts/stats.sh` | 台账统计：每个成员、每条线的单数、成功、失败、耗时 |
 | `scripts/install.sh` | 安装和卸载 |
 
 ## 要求
@@ -93,6 +112,8 @@ macOS 或 Linux，bash 3.2 以上，不需要装别的依赖。用命令行调�
 ## English
 
 **One window to run all your AIs.** You talk to a single AI, the manager. It splits your requests into task lines: changes to the same product stay in one session, unrelated work is forked into parallel sub-sessions, and specialist work goes to other AI tools on your machine. Everything reports back to the main window, where you only approve and review.
+
+**It only asks you when it has to.** Deleting, spending, messaging outsiders and changing permissions go to you as a decision card with a recommended option; everything you decided once is logged and never asked again. Rules plus schedules or events let members wake up on their own.
 
 **You choose who manages and who works.** Claude Code, Codex, Antigravity or WorkBuddy can be the manager. Every other AI is registered as a member in a plain-text team table, with what it is good at and how to call it: a built-in preset, a custom command template, or `manual` relay for web-only chat products.
 

@@ -7,6 +7,7 @@
 #   team.sh set-manager 名字                   指定总管
 #   team.sh add "名字 | 擅长 | 调用方式 | 写模式调用方式（可省）"
 #   team.sh remove 名字
+#   规则写法见 references/automation.md；触发规则用 run-rule.sh
 #   team.sh trust                              信任当前项目的团队表（项目表里的自定义命令要信任后才执行；表一改要重新信任）
 # 调用方式：preset:codex | preset:claude | preset:kimi | preset:antigravity
 #           cmd:命令模板（{prompt} 换成简报，{dir} 换成工作目录）
@@ -78,6 +79,12 @@ case "${CMD}" in
     zg_members | while IFS="${ZG_SEP}" read -r n s c w; do
       printf '  %-14s 擅长：%s\n  %-14s 调用：%s%s\n' "$n" "$s" "" "$c" "${w:+；写模式：$w}"
     done
+    if [ -n "$(zg_rules 2>/dev/null)" ]; then
+      echo "规则："
+      zg_rules | while IFS="${ZG_SEP}" read -r rn rm rl ri rp rpar rnoti rdir; do
+        printf '  %-14s 派给 %s，线 %s，%s，并行 %s，通知：%s\n  %-14s 指令：%s\n' "$rn" "$rm" "${rl:-$rn}" "${rp:-只读}" "${rpar:-1}" "${rnoti:-需要时}" "" "$ri"
+      done
+    fi
     ;;
   check)
     PING=0; [ "${1:-}" = "--ping" ] && PING=1

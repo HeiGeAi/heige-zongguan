@@ -5,6 +5,8 @@
 #   退出码 10：这个成员是手动接力，简报已打印，等用户转交后把结论贴回来
 #   简报以 - 开头时，在简报前加 -- ，例如 dispatch.sh codex -- "-简报"
 #   -w  允许写文件；默认只读（codex 硬沙箱并关掉 MCP；claude 限定只读工具并关掉 MCP；kimi、antigravity、custom 只能靠简报叮嘱）
+#   -l  线名：同一条线同时只跑 -s 份（默认 1），已满返回 6；不给线名就不限
+#   -s  这条线最多同时跑几份
 #   -o  antigravity 用：让子对话把最终结果写进这个文件，脚本等文件出现再返回；不给就只开对话、立刻返回
 # 结论打到 stdout，完整日志在 $ZONGGUAN_LOG_DIR（默认 ~/.zongguan/logs，仅本人可读）
 set -uo pipefail
@@ -12,11 +14,12 @@ umask 077
 HERE="$(cd "$(dirname "$0")" && pwd -P)"
 
 AGENT="${1:-}"; shift || true
-DIR="$PWD"; WRITE=0; MODEL=""; TIMEOUT=1800; PFILE=""; RESULT=""
-while getopts "C:wm:t:f:o:" opt; do
+DIR="$PWD"; WRITE=0; MODEL=""; TIMEOUT=1800; PFILE=""; RESULT=""; LINE=""; SLOTS=1
+while getopts "C:wm:t:f:o:l:s:" opt; do
   case $opt in
     C) DIR="$OPTARG" ;; w) WRITE=1 ;; m) MODEL="$OPTARG" ;;
     t) TIMEOUT="$OPTARG" ;; f) PFILE="$OPTARG" ;; o) RESULT="$OPTARG" ;;
+    l) LINE="$OPTARG" ;; s) SLOTS="$OPTARG" ;;
     *) exit 2 ;;
   esac
 done
@@ -63,9 +66,38 @@ case "${KIND}" in
 esac
 SAFE_NAME="$(printf '%s' "${AGENT}" | tr '/ ' '__')"
 
-LOG_DIR="${ZONGGUAN_LOG_DIR:-$HOME/.zongguan/logs}"; mkdir -p "${LOG_DIR}"; chmod 700 "${LOG_DIR}" 2>/dev/null
+ZG_HOME="${ZONGGUAN_HOME:-$HOME/.zongguan}"; mkdir -p "${ZG_HOME}"; chmod 700 "${ZG_HOME}" 2>/dev/null
+LOG_DIR="${ZONGGUAN_LOG_DIR:-${ZG_HOME}/logs}"; mkdir -p "${LOG_DIR}"; chmod 700 "${LOG_DIR}" 2>/dev/null
 TS=$(date +%Y%m%d-%H%M%S)-$$
 LOG="${LOG_DIR}/${TS}-${SAFE_NAME}.log"; OUT="${LOG_DIR}/${TS}-${SAFE_NAME}.last.md"
+LEDGER="${ZONGGUAN_LEDGER:-${ZG_HOME}/ledger.tsv}"
+START_EPOCH=$(date +%s); START_AT=$(date '+%Y-%m-%d %H:%M:%S')
+
+# 线名锁：同一条线最多同时跑 SLOTS 份，用 mkdir 抢占，进程不在了的锁自动清掉
+LOCK=""
+if [ -n "${LINE}" ]; then
+  case "${SLOTS}" in ''|*[!0-9]*|0) echo "-s 要写正整数" >&2; exit 2 ;; esac
+  LOCK_ROOT="${ZG_HOME}/locks"; mkdir -p "${LOCK_ROOT}"
+  SAFE_LINE="$(printf '%s' "${LINE}" | tr '/ ' '__')"
+  i=1
+  while [ "${i}" -le "${SLOTS}" ]; do
+    L="${LOCK_ROOT}/${SAFE_LINE}.${i}"
+    if [ -d "${L}" ]; then
+      op="$(cat "${L}/pid" 2>/dev/null)"
+      if [ -n "${op}" ]; then
+        kill -0 "${op}" 2>/dev/null || rm -rf "${L}"
+      elif [ -n "$(find "${L}" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+        rm -rf "${L}"   # 没写进程号、又放了一分钟以上，才当作残留；刚抢到还没写进程号的不动
+      fi
+    fi
+    if mkdir "${L}" 2>/dev/null; then echo $$ > "${L}/pid"; LOCK="${L}"; break; fi
+    i=$((i+1))
+  done
+  if [ -z "${LOCK}" ]; then
+    echo "线「${LINE}」已经有 ${SLOTS} 份在跑，这单没派。等它回来，或者用 -s 放宽。" >&2; exit 6
+  fi
+  trap 'rm -rf "${LOCK}"' EXIT
+fi
 
 READONLY_NOTE="【硬性约束】本次任务只读：禁止新建、修改、删除任何文件，禁止执行有副作用的命令，只读取和回答。完整结果直接写在回复里。"
 soft_readonly() {
@@ -115,7 +147,8 @@ case "${RUN}" in
     soft_readonly
     CMD=(kimi); [ -n "${MODEL}" ] && CMD+=(-m "${MODEL}"); CMD+=(-p)
     run_with_timeout "${CMD[@]}" "${PROMPT}"; RC=$?
-    cp "${LOG}" "${OUT}"
+    # 去掉 kimi 命令行自己打印的版本号、警告和续聊提示，只留回复
+    grep -v -E '^kimi version|^Warning: |^To resume this session' "${LOG}" > "${OUT}"
     ;;
   antigravity)
     AGAPI="$(command -v agentapi || echo "$HOME/.gemini/antigravity/bin/agentapi")"
@@ -198,6 +231,17 @@ esac
 # 10 留给手动接力；自动成员自己退出 10 时改报 1，避免总管误以为在等人转交
 if [ "${RUN}" != manual ] && [ "${RC}" = 10 ]; then echo "[dispatch] 成员退出码 10，按普通失败处理" >>"${LOG}"; RC=1; fi
 echo "[dispatch] exit=${RC}" >>"${LOG}"
+
+# 台账：一单一行，制表符分隔。开始、结束、秒数、成员、线名、规则、事件、调用方式、写入、退出码、结论首行、结果文件、日志
+clean() { printf '%s' "$1" | tr '\t\r\n' '   ' | cut -c1-"${2:-200}"; }
+if [ ! -f "${LEDGER}" ]; then
+  printf '开始\t结束\t秒数\t成员\t线名\t规则\t事件\t调用方式\t写入\t退出码\t结论\t结果文件\t日志\n' > "${LEDGER}"
+fi
+SUMMARY="$(grep -v '^[[:space:]]*$' "${OUT}" 2>/dev/null | grep -v '^\[dispatch\]' | head -1)"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  "${START_AT}" "$(date '+%Y-%m-%d %H:%M:%S')" "$(( $(date +%s) - START_EPOCH ))" \
+  "$(clean "${AGENT}" 40)" "$(clean "${LINE}" 60)" "$(clean "${ZONGGUAN_RULE:-}" 60)" "$(clean "${ZONGGUAN_EVENT:-}" 120)" \
+  "$(clean "${CALL}" 80)" "${WRITE}" "${RC}" "$(clean "${SUMMARY}" 120)" "${OUT}" "${LOG}" >> "${LEDGER}" 2>/dev/null
 if [ -s "${OUT}" ]; then cat "${OUT}"; else cat "${LOG}"; fi
 echo "" >&2
 echo "[dispatch] agent=${AGENT} exit=${RC} write=${WRITE} dir=${DIR} log=${LOG}" >&2
