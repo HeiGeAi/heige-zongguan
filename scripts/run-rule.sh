@@ -22,6 +22,7 @@ EVENT=""; EFILE=""; KEY=""; DRY=0
 while getopts "e:E:k:n" opt; do
   case $opt in e) EVENT="$OPTARG" ;; E) EFILE="$OPTARG" ;; k) KEY="$OPTARG" ;; n) DRY=1 ;; *) exit 2 ;; esac
 done
+[ -z "${EFILE}" ] || [ -f "${EFILE}" ] || { echo "事件详情文件不存在：${EFILE}" >&2; exit 2; }
 
 TEAM_FILE="$(zg_team_file)"
 ROW=""; CNT=0
@@ -48,8 +49,12 @@ KEY="${KEY:-${RULE}|${EVENT}}"
 H="$(printf '%s' "${KEY}" | { command -v shasum >/dev/null && shasum -a 256 || sha256sum; } | awk '{print $1}')"
 SEEN="${ZG_HOME}/seen/${H}"; WIN="${ZONGGUAN_DEDUP_SECONDS:-600}"
 case "${WIN}" in ''|*[!0-9]*) WIN=600 ;; esac
-if [ -f "${SEEN}" ] && [ $(( $(date +%s) - $(cat "${SEEN}" 2>/dev/null || echo 0) )) -lt "${WIN}" ]; then
-  echo "重复事件，${WIN} 秒内处理过，跳过：${KEY}"; exit 0
+if [ -f "${SEEN}" ]; then
+  SEEN_TS="$(cat "${SEEN}" 2>/dev/null || true)"
+  case "${SEEN_TS}" in ''|*[!0-9]*) SEEN_TS=0 ;; esac
+  if [ $(( $(date +%s) - SEEN_TS )) -lt "${WIN}" ]; then
+    echo "重复事件，${WIN} 秒内处理过，跳过：${KEY}"; exit 0
+  fi
 fi
 
 DECISIONS=""
@@ -91,12 +96,16 @@ if ! mkdir "${CLAIM}" 2>/dev/null; then
   if [ -n "$(find "${CLAIM}" -maxdepth 0 -mmin +60 2>/dev/null)" ]; then rm -rf "${CLAIM}"; mkdir "${CLAIM}" 2>/dev/null || exit 0
   else echo "同一个事件正在处理，跳过：${KEY}"; exit 0; fi
 fi
-trap 'rm -rf "${CLAIM}"' EXIT
+ERRF="${ZG_HOME}/run-rule-$$.err"
+trap 'rm -rf "${CLAIM}" "${ERRF}"' EXIT
 date +%s > "${SEEN}"
 export ZONGGUAN_RULE="${RULE}" ZONGGUAN_EVENT="${EVENT}"
-OUTPUT="$(bash "${HERE}/dispatch.sh" "${MEMBER}" -C "${WDIR}" -l "${LINE}" -s "${PAR}" "${WFLAG[@]+"${WFLAG[@]}"}" "${EXTRA[@]+"${EXTRA[@]}"}" -- "${BRIEF}" 2>"${ZG_HOME}/run-rule.err")"; RC=$?
+OUTPUT="$(bash "${HERE}/dispatch.sh" "${MEMBER}" -C "${WDIR}" -l "${LINE}" -s "${PAR}" "${WFLAG[@]+"${WFLAG[@]}"}" "${EXTRA[@]+"${EXTRA[@]}"}" -- "${BRIEF}" 2>"${ERRF}")"; RC=$?
 # 线满了没派、或者没跑成，这个事件下次还要处理，去掉已处理标记
 case "${RC}" in 0|10) ;; *) rm -f "${SEEN}" ;; esac
+if [ -z "$(printf '%s' "${OUTPUT}" | tr -d '[:space:]')" ] && [ -s "${ERRF}" ]; then
+  OUTPUT="$(cat "${ERRF}")"
+fi
 printf '%s\n' "${OUTPUT}"
 
 NEED=0
@@ -106,14 +115,15 @@ case "${NOTIFY}" in
 esac
 if [ "${NEED}" = 1 ]; then
   if [ "${RC}" = 0 ] || [ "${RC}" = 10 ]; then TITLE="规则「${RULE}」"; else TITLE="规则「${RULE}」没跑成（退出码 ${RC}）"; fi
-  BODY="$(printf '%s' "${OUTPUT}" | grep -v '^[[:space:]]*$' | head -12)"
+  BODY="$(printf '%s' "${OUTPUT}" | grep -v '^[[:space:]]*$' | grep -v '^\[dispatch\] 提醒：' | head -12)"
+  [ -n "${BODY}" ] || BODY="$(printf '%s' "${OUTPUT}" | grep -v '^[[:space:]]*$' | head -12)"
   { printf '\n## %s  %s\n\n%s\n' "$(date '+%Y-%m-%d %H:%M')" "${TITLE}" "${BODY}"; } >> "${ZG_HOME}/inbox.md"
   if [ -n "${ZONGGUAN_NOTIFY_CMD:-}" ]; then
     read -r -a NC <<<"${ZONGGUAN_NOTIFY_CMD}"
     "${NC[@]}" "${TITLE}：$(printf '%s' "${BODY}" | head -1)" >/dev/null 2>&1 || echo "通知命令失败：${ZONGGUAN_NOTIFY_CMD}" >&2
   elif command -v osascript >/dev/null; then
-    T="${TITLE//\"/}"; B="$(printf '%s' "${BODY}" | head -1 | tr -d '"\\')"
-    osascript -e "display notification \"${B}\" with title \"${T}\"" >/dev/null 2>&1
+    B="$(printf '%s' "${BODY}" | head -1)"
+    osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title (item 2 of argv)' -e 'end run' -- "${B}" "${TITLE}" >/dev/null 2>&1
   fi
 fi
 exit "${RC}"

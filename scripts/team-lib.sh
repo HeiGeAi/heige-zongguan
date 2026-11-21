@@ -4,6 +4,27 @@
 
 zg_trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"; printf '%s' "$s"; }
 
+zg_canon_file() {
+  local p="$1" dir base cdir
+  dir="$(dirname "$p")"; base="$(basename "$p")"
+  if cdir="$(cd "$dir" 2>/dev/null && pwd -P)"; then
+    printf '%s/%s' "${cdir%/}" "$base"
+  else
+    printf '%s' "$p"
+  fi
+}
+
+zg_global_team_file() {
+  printf '%s' "${ZONGGUAN_HOME:-$HOME/.zongguan}/team.conf"
+}
+
+zg_is_global_team_file() {
+  local f="$1" g
+  g="$(zg_global_team_file)"
+  [ "$f" = "$g" ] && return 0
+  [ "$(zg_canon_file "$f")" = "$(zg_canon_file "$g")" ]
+}
+
 zg_team_file() {
   if [ -n "${ZONGGUAN_TEAM:-}" ]; then printf '%s' "${ZONGGUAN_TEAM}"; return; fi
   local d; d="$(pwd -P)"
@@ -11,7 +32,7 @@ zg_team_file() {
     if [ -f "$d/.zongguan/team.conf" ]; then printf '%s' "$d/.zongguan/team.conf"; return; fi
     d="$(dirname "$d")"
   done
-  printf '%s' "$HOME/.zongguan/team.conf"
+  zg_global_team_file
 }
 
 # 输出总管名字
@@ -67,12 +88,12 @@ zg_rules() {
 }
 
 # 团队表可信吗：全局表、ZONGGUAN_TEAM 指定的表自动可信；项目里的表要用户 team.sh trust 过，且内容没变
-ZG_TRUST_FILE="$HOME/.zongguan/trusted.txt"
+ZG_TRUST_FILE="${ZONGGUAN_HOME:-$HOME/.zongguan}/trusted.txt"
 zg_hash() { if command -v shasum >/dev/null; then shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi; }
 zg_trusted() {
   local f; f="$(zg_team_file)"
   [ -n "${ZONGGUAN_TEAM:-}" ] && return 0
-  [ "$f" = "$HOME/.zongguan/team.conf" ] && return 0
+  zg_is_global_team_file "$f" && return 0
   [ -f "$f" ] && [ -f "$ZG_TRUST_FILE" ] || return 1
-  grep -qxF "$(cd "$(dirname "$f")" && pwd -P)/$(basename "$f") $(zg_hash "$f")" "$ZG_TRUST_FILE"
+  grep -qxF "$(zg_canon_file "$f") $(zg_hash "$f")" "$ZG_TRUST_FILE"
 }

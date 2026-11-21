@@ -127,9 +127,11 @@ case "${CMD}" in
     ;;
   add)
     [ -n "${1:-}" ] || { echo '格式：team.sh add "名字 | 擅长 | 调用方式"' >&2; exit 2; }
-    n="$(zg_trim "${1%%|*}")"
-    zg_lookup "${n}" >/dev/null && { echo "已有成员 ${n}，先 remove 再加" >&2; exit 1; }
     case "$1" in *"|"*"|"*) ;; *) echo '至少要三段：名字 | 擅长 | 调用方式' >&2; exit 2 ;; esac
+    n="$(zg_trim "${1%%|*}")"
+    [ -n "${n}" ] || { echo '成员名字不能为空' >&2; exit 2; }
+    zg_lookup "${n}" >/dev/null; lrc=$?
+    if [ "${lrc}" = 0 ] || [ "${lrc}" = 3 ]; then echo "已有成员 ${n}，先 remove 再加" >&2; exit 1; fi
     mkdir -p "$(dirname "${F}")"
     if [ -s "${F}" ] && [ -n "$(tail -c 1 "${F}")" ]; then echo >> "${F}"; fi
     echo "成员 = $1" >> "${F}" || { echo "写团队表失败" >&2; exit 1; }
@@ -137,7 +139,8 @@ case "${CMD}" in
     ;;
   remove)
     [ -n "${1:-}" ] || { echo "要写成员名字" >&2; exit 2; }
-    zg_lookup "$1" >/dev/null || { echo "没有成员 $1" >&2; exit 1; }
+    zg_lookup "$1" >/dev/null; lrc=$?
+    if [ "${lrc}" != 0 ] && [ "${lrc}" != 3 ]; then echo "没有成员 $1" >&2; exit 1; fi
     tmp="${F}.tmp.$$"
     ZG_N="$1" awk -F'|' '{
       line=$0
@@ -150,12 +153,19 @@ case "${CMD}" in
     ;;
   trust)
     [ -f "${F}" ] || { echo "没有团队表：${F}" >&2; exit 1; }
-    if [ "${F}" = "$HOME/.zongguan/team.conf" ]; then echo "全局团队表本来就可信，不用 trust"; exit 0; fi
+    if zg_is_global_team_file "${F}"; then echo "全局团队表本来就可信，不用 trust"; exit 0; fi
     echo "要信任的团队表：${F}"; echo "里面的自定义命令："; grep -n -E '\|[[:space:]]*cmd:' "${F}" || echo "  （没有）"
     mkdir -p "$(dirname "${ZG_TRUST_FILE}")"
-    abs="$(cd "$(dirname "${F}")" && pwd -P)/$(basename "${F}")"
-    grep -v -F "${abs} " "${ZG_TRUST_FILE}" 2>/dev/null > "${ZG_TRUST_FILE}.tmp"
-    echo "${abs} $(zg_hash "${F}")" >> "${ZG_TRUST_FILE}.tmp" && mv "${ZG_TRUST_FILE}.tmp" "${ZG_TRUST_FILE}" && chmod 600 "${ZG_TRUST_FILE}"
+    abs="$(zg_canon_file "${F}")"
+    tmp="${ZG_TRUST_FILE}.tmp.$$"
+    if [ -f "${ZG_TRUST_FILE}" ]; then
+      ZG_PREFIX="${abs} " awk 'substr($0, 1, length(ENVIRON["ZG_PREFIX"])) != ENVIRON["ZG_PREFIX"]' "${ZG_TRUST_FILE}" > "${tmp}" \
+        || { rm -f "${tmp}"; echo "写信任记录失败" >&2; exit 1; }
+    else
+      : > "${tmp}"
+    fi
+    printf '%s %s\n' "${abs}" "$(zg_hash "${F}")" >> "${tmp}" && mv "${tmp}" "${ZG_TRUST_FILE}" && chmod 600 "${ZG_TRUST_FILE}" \
+      || { rm -f "${tmp}"; echo "写信任记录失败" >&2; exit 1; }
     echo "已信任。团队表内容一改，需要重新 trust。"
     ;;
   *) echo "未知命令：${CMD}（可选 init、show、check、set-manager、add、remove、trust）" >&2; exit 2 ;;
